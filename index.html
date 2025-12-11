@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stock Price Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 2rem;
+      background: #f7f7fb;
+      color: #222;
+    }
+    .card {
+      max-width: 720px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 1.5rem 2rem;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.6rem;
+    }
+    p {
+      margin: 0.25rem 0 0.75rem;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.6rem 0.7rem;
+      margin: 0.5rem 0 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 0.95rem;
+    }
+    button {
+      padding: 0.5rem 0.9rem;
+      margin-right: 0.5rem;
+      border-radius: 8px;
+      border: 1px solid #444;
+      background: #222;
+      color: #fff;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #fff;
+      color: #222;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .error {
+      color: #c0392b;
+      margin-top: 0.75rem;
+      font-size: 0.9rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 0.5rem;
+      text-align: left;
+    }
+    th {
+      background: #f0f0f5;
+      font-weight: 600;
+    }
+    tr.error-row {
+      color: #c0392b;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.4rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      margin-left: 0.4rem;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Live Stock Prices (Demo)</h1>
+    <p>
+      Enter stock tickers (comma separated), e.g.
+      <strong>AAPL, MSFT, TSLA</strong>
+      <span class="badge">Real-time via Finnhub</span>
+    </p>
+
+    <input id="symbols-input" type="text" placeholder="AAPL, MSFT, TSLA" />
+    <div>
+      <button id="fetch-btn">Get Prices</button>
+      <button id="auto-toggle-btn" class="secondary">Start Auto-Refresh (10s)</button>
+    </div>
+
+    <div id="error" class="error"></div>
+
+    <table id="results-table" style="display:none;">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Price</th>
+          <th>Change</th>
+          <th>Change %</th>
+          <th>Open</th>
+          <th>High</th>
+          <th>Low</th>
+          <th>Prev Close</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const fetchBtn = document.getElementById("fetch-btn");
+    const autoToggleBtn = document.getElementById("auto-toggle-btn");
+    const symbolsInput = document.getElementById("symbols-input");
+    const resultsTable = document.getElementById("results-table");
+    const resultsBody = document.getElementById("results-body");
+    const errorDiv = document.getElementById("error");
+
+    let autoRefreshInterval = null;
+
+    async function fetchQuotes() {
+      const symbols = symbolsInput.value.trim();
+      errorDiv.textContent = "";
+
+      if (!symbols) {
+        errorDiv.textContent = "Please enter at least one symbol.";
+        return;
+      }
+
+      fetchBtn.disabled = true;
+
+      try {
+        const resp = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols)}`);
+        if (!resp.ok) {
+          throw new Error(\`Backend error: \${resp.status}\`);
+        }
+        const data = await resp.json();
+        renderTable(data);
+      } catch (err) {
+        errorDiv.textContent = "Error fetching quotes: " + err.message;
+      } finally {
+        fetchBtn.disabled = false;
+      }
+    }
+
+    function renderTable(data) {
+      resultsBody.innerHTML = "";
+
+      const symbols = Object.keys(data || {});
+      if (symbols.length === 0) {
+        resultsTable.style.display = "none";
+        errorDiv.textContent = "No data returned.";
+        return;
+      }
+
+      symbols.forEach((symbol) => {
+        const info = data[symbol] || {};
+        const row = document.createElement("tr");
+
+        if (info.error) {
+          row.classList.add("error-row");
+        }
+
+        const cells = [
+          symbol,
+          info.error ? "--" : (info.price ?? "--"),
+          info.error ? info.error : (info.change ?? "--"),
+          info.error ? "" : (info.change_percent ?? "--"),
+          info.error ? "--" : (info.open ?? "--"),
+          info.error ? "--" : (info.high ?? "--"),
+          info.error ? "--" : (info.low ?? "--"),
+          info.error ? "--" : (info.previous_close ?? "--"),
+        ];
+
+        cells.forEach((val) => {
+          const td = document.createElement("td");
+          td.textContent = val;
+          row.appendChild(td);
+        });
+
+        resultsBody.appendChild(row);
+      });
+
+      resultsTable.style.display = "table";
+    }
+
+    fetchBtn.addEventListener("click", fetchQuotes);
+
+    autoToggleBtn.addEventListener("click", () => {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+        autoToggleBtn.textContent = "Start Auto-Refresh (10s)";
+      } else {
+        fetchQuotes(); // immediate
+        autoRefreshInterval = setInterval(fetchQuotes, 10000);
+        autoToggleBtn.textContent = "Stop Auto-Refresh";
+      }
+    });
+  </script>
+</body>
+</html>
